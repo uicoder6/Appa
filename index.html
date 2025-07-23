@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>3D Model Viewer - Fullscreen</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      font-family: Arial, sans-serif;
+    }
+    #container3D {
+      width: 100vw;
+      height: 100vh;
+      display: block;
+      touch-action: none;
+    }
+    div.text-center {
+      text-align: center;
+      padding: 10px;
+      background: #f0f0f0;
+    }
+    input#speakText {
+      width: 300px;
+      padding: 8px;
+      font-size: 16px;
+      box-sizing: border-box;
+    }
+    button {
+      padding: 8px 15px;
+      font-size: 1rem;
+      margin-left: 10px;
+      cursor: pointer;
+    }
+    h3 {
+      text-align: center;
+      margin-top: 10px;
+    }
+    #voiceStatus {
+      margin-top: 8px;
+      font-size: 0.9rem;
+      color: gray;
+      font-style: italic;
+    }
+  </style>
+</head>
+<body>
+  <div class="text-center">
+    <h1>3D Model</h1>
+    <input type="text" id="speakText" placeholder="Enter text to speak" />
+    <button onclick="speakNow()">Speak</button>
+    <button onclick="startVoiceInput()" id="startBtn">🎙️ Start Listening</button>
+    <button onclick="stopVoiceInput()" id="stopBtn" disabled>🛑 Stop Listening</button>
+    <p id="voiceStatus"></p>
+  </div>
+
+  <div id="container3D"></div>
+  <h3>end</h3>
+
+  <!-- 3D viewer script -->
+  <script type="module">
+    import * as THREE from "https://cdn.skypack.dev/three@0.129.0/build/three.module.js";
+    import { OrbitControls } from "https://cdn.skypack.dev/three@0.129.0/examples/jsm/controls/OrbitControls.js";
+    import { GLTFLoader } from "https://cdn.skypack.dev/three@0.129.0/examples/jsm/loaders/GLTFLoader.js";
+
+    const container = document.getElementById("container3D");
+    const scene = new THREE.Scene();
+
+    const camera = new THREE.PerspectiveCamera(
+      75,
+      window.innerWidth / window.innerHeight,
+      0.1,
+      1000
+    );
+
+    const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    container.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+
+    const ambientLight = new THREE.AmbientLight(0xffffff, 1.2);
+    scene.add(ambientLight);
+
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+    directionalLight.position.set(1, 1, 1);
+    scene.add(directionalLight);
+
+    const loader = new GLTFLoader();
+
+    loader.load(
+      './model.glb',
+      function (gltf) {
+        const model = gltf.scene;
+        const isMobile = window.innerWidth < 768;
+
+        // 🔄 Updated scale
+        const baseScale = isMobile ? 20 : 40;
+        model.scale.set(baseScale, baseScale, baseScale);
+
+        const box = new THREE.Box3().setFromObject(model);
+        const center = box.getCenter(new THREE.Vector3());
+        model.position.sub(center);
+
+        // 🔄 Updated vertical position
+        model.position.y += 10;
+
+        scene.add(model);
+
+        const size = box.getSize(new THREE.Vector3()).length();
+        if (isMobile) {
+          camera.position.set(0, size * 0.3, size);
+        } else {
+          camera.position.set(0, size, size * 0.6);
+        }
+        controls.update();
+
+        if (gltf.animations && gltf.animations.length) {
+          const mixer = new THREE.AnimationMixer(model);
+          mixer.clipAction(gltf.animations[0]).play();
+
+          const clock = new THREE.Clock();
+          function animateWithMixer() {
+            requestAnimationFrame(animateWithMixer);
+            const delta = clock.getDelta();
+            mixer.update(delta);
+            controls.update();
+            renderer.render(scene, camera);
+          }
+          animateWithMixer();
+          return;
+        }
+      },
+      undefined,
+      function (error) {
+        console.error("An error occurred loading the model:", error);
+      }
+    );
+
+    window.addEventListener("resize", () => {
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+      renderer.setSize(width, height);
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+    });
+  </script>
+
+  <!-- Voice-to-text and speech script -->
+  <script>
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const statusEl = document.getElementById("voiceStatus");
+    const startBtn = document.getElementById("startBtn");
+    const stopBtn = document.getElementById("stopBtn");
+    const inputEl = document.getElementById("speakText");
+
+    let recognition;
+    let autoSpeakAfterVoice = false;
+
+    function speakNow() {
+      const text = inputEl.value.trim();
+      if (text) {
+        speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+      } else {
+        alert("Please enter text to speak.");
+      }
+    }
+
+    if (!SpeechRecognition) {
+      statusEl.textContent = "Voice input not supported in this browser.";
+      startBtn.disabled = true;
+    } else {
+      recognition = new SpeechRecognition();
+      recognition.lang = 'en-US';
+      recognition.continuous = false;
+      recognition.interimResults = false;
+
+      recognition.onstart = () => {
+        statusEl.textContent = "🎤 Listening...";
+        startBtn.disabled = true;
+        stopBtn.disabled = false;
+        autoSpeakAfterVoice = true;
+      };
+
+      recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        inputEl.value = transcript;
+        statusEl.textContent = "✅ Voice captured.";
+
+        if (autoSpeakAfterVoice) {
+          setTimeout(() => {
+            speakNow();
+          }, 1000);
+        }
+      };
+
+      recognition.onerror = (event) => {
+        statusEl.textContent = "❌ Error: " + event.error;
+      };
+
+      recognition.onend = () => {
+        statusEl.textContent += " (Stopped)";
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+        autoSpeakAfterVoice = false;
+      };
+
+      window.startVoiceInput = () => {
+        recognition.start();
+      };
+
+      window.stopVoiceInput = () => {
+        recognition.stop();
+        statusEl.textContent = "🛑 Manually stopped.";
+        autoSpeakAfterVoice = false;
+      };
+    }
+  </script>
+</body>
+</html>
